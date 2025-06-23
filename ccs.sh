@@ -29,29 +29,74 @@ check_macos() {
     fi
 }
 
-# Function to extract credentials from keychain
+# Function to extract credentials from keychain with detailed error reporting
 get_keychain_credentials() {
+    echo -e "${BLUE}Debug: Attempting to extract credentials...${NC}"
+    echo -e "Debug: User: $USER"
+    echo -e "Debug: Service: $KEYCHAIN_SERVICE"
+    echo -e "Debug: Command: security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
+    echo
+    
+    # Try the command and capture both stdout and stderr
     local creds
-    creds=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE" 2>/dev/null) || {
-        echo -e "${RED}Error: Could not find Claude Code credentials in keychain${NC}"
-        echo -e "Please make sure you are signed in with Claude Code first."
+    local error_output
+    
+    error_output=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE" 2>&1)
+    local exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        creds="$error_output"
+        echo -e "${GREEN}✓ Successfully extracted credentials${NC}"
+        echo -e "Debug: Credential length: ${#creds} characters"
+        echo "$creds"
+    else
+        echo -e "${RED}✗ Failed to extract credentials${NC}"
+        echo -e "${RED}Exit code: $exit_code${NC}"
+        echo -e "${RED}Error output: $error_output${NC}"
+        echo
+        echo -e "${YELLOW}Troubleshooting steps:${NC}"
+        echo -e "1. Make sure Claude Code is installed and you've signed in at least once"
+        echo -e "2. Try running this command manually to see the full error:"
+        echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
+        echo -e "3. Check if Claude Code uses a different service name by running:"
+        echo -e "   security dump-keychain | grep -i claude"
         return 1
-    }
-    echo "$creds"
+    fi
 }
 
 # Function to set keychain credentials
 set_keychain_credentials() {
     local creds="$1"
     
+    echo -e "${BLUE}Debug: Setting credentials in keychain...${NC}"
+    echo -e "Debug: Credential length: ${#creds} characters"
+    
     # Delete existing entry if it exists
-    security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>/dev/null || true
+    echo -e "Debug: Deleting existing entry (if any)..."
+    local delete_output
+    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1)
+    local delete_exit_code=$?
+    
+    if [ $delete_exit_code -eq 0 ]; then
+        echo -e "Debug: Existing entry deleted successfully"
+    else
+        echo -e "Debug: No existing entry to delete (or delete failed): $delete_output"
+    fi
     
     # Add new credentials
-    security add-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w "$creds" || {
-        echo -e "${RED}Error: Failed to store credentials in keychain${NC}"
+    echo -e "Debug: Adding new credentials..."
+    local add_output
+    add_output=$(security add-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w "$creds" 2>&1)
+    local add_exit_code=$?
+    
+    if [ $add_exit_code -eq 0 ]; then
+        echo -e "${GREEN}✓ Successfully stored credentials in keychain${NC}"
+    else
+        echo -e "${RED}✗ Failed to store credentials in keychain${NC}"
+        echo -e "${RED}Exit code: $add_exit_code${NC}"
+        echo -e "${RED}Error output: $add_output${NC}"
         return 1
-    }
+    fi
 }
 
 # Function to save credentials to file
@@ -59,13 +104,27 @@ save_credentials() {
     local creds="$1"
     local output_file="$2"
     
+    echo -e "${BLUE}Debug: Saving credentials to $output_file...${NC}"
+    echo -e "Debug: Credential length: ${#creds} characters"
+    
     # Save exactly what we extracted - no modifications
-    echo "$creds" > "$output_file"
+    if echo "$creds" > "$output_file"; then
+        echo -e "Debug: File write successful"
+    else
+        echo -e "${RED}Error: Failed to write to $output_file${NC}"
+        return 1
+    fi
     
     # Set permissions to 600
-    chmod 600 "$output_file"
+    if chmod 600 "$output_file"; then
+        echo -e "Debug: Permissions set to 600"
+    else
+        echo -e "${RED}Error: Failed to set permissions on $output_file${NC}"
+        return 1
+    fi
     
     echo -e "${GREEN}✓ Credentials saved to $output_file${NC}"
+    echo -e "Debug: File size: $(wc -c < "$output_file" | tr -d ' ') bytes"
 }
 
 # Function to restore credentials from file
@@ -77,12 +136,17 @@ restore_credentials() {
         return 1
     fi
     
+    echo -e "${BLUE}Debug: Restoring credentials from $input_file...${NC}"
+    echo -e "Debug: File size: $(wc -c < "$input_file" | tr -d ' ') bytes"
+    
     # Read the file content exactly as saved
     local creds
     creds=$(cat "$input_file") || {
         echo -e "${RED}Error: Could not read $input_file${NC}"
         return 1
     }
+    
+    echo -e "Debug: Read ${#creds} characters from file"
     
     # Store exactly what was saved back to keychain
     set_keychain_credentials "$creds" || return 1
@@ -104,10 +168,16 @@ setup_authentications() {
     echo -e "${BLUE}Extracting personal credentials from macOS Keychain...${NC}"
     
     local personal_creds
-    personal_creds=$(get_keychain_credentials) || exit 1
+    personal_creds=$(get_keychain_credentials) || {
+        echo -e "${RED}Failed to extract personal credentials. Aborting setup.${NC}"
+        exit 1
+    }
     
     # Save personal credentials exactly as extracted
-    save_credentials "$personal_creds" "$PERSONAL_JSON"
+    save_credentials "$personal_creds" "$PERSONAL_JSON" || {
+        echo -e "${RED}Failed to save personal credentials. Aborting setup.${NC}"
+        exit 1
+    }
     
     echo
     
@@ -125,10 +195,16 @@ setup_authentications() {
     echo -e "${BLUE}Extracting API billing credentials from macOS Keychain...${NC}"
     
     local api_creds
-    api_creds=$(get_keychain_credentials) || exit 1
+    api_creds=$(get_keychain_credentials) || {
+        echo -e "${RED}Failed to extract API credentials. Personal auth was saved, but API setup incomplete.${NC}"
+        exit 1
+    }
     
     # Save API credentials exactly as extracted
-    save_credentials "$api_creds" "$API_JSON"
+    save_credentials "$api_creds" "$API_JSON" || {
+        echo -e "${RED}Failed to save API credentials. Personal auth was saved, but API setup incomplete.${NC}"
+        exit 1
+    }
     
     echo
     echo -e "${GREEN}✓ Setup complete! You can now switch between personal and API billing auth.${NC}"
@@ -205,6 +281,7 @@ show_status() {
     echo -e "${BLUE}=== Current Status ===${NC}"
     
     # Check keychain credentials
+    echo -e "Checking current keychain credentials..."
     if get_keychain_credentials > /dev/null 2>&1; then
         echo -e "${GREEN}✓ Claude Code credentials found in keychain${NC}"
         
@@ -236,17 +313,56 @@ show_status() {
 
 # Function to check dependencies
 check_dependencies() {
+    echo -e "${BLUE}Debug: Checking dependencies...${NC}"
+    
     if ! command -v jq &> /dev/null; then
         echo -e "${RED}Error: jq is required but not installed${NC}"
         echo -e "Install with: brew install jq"
         exit 1
+    else
+        echo -e "Debug: jq found at $(which jq)"
     fi
     
     if ! command -v security &> /dev/null; then
         echo -e "${RED}Error: security command not found${NC}"
         echo -e "This script requires macOS security command"
         exit 1
+    else
+        echo -e "Debug: security found at $(which security)"
     fi
+    
+    echo -e "${GREEN}✓ All dependencies found${NC}"
+    echo
+}
+
+# Function to test keychain access (for troubleshooting)
+test_keychain() {
+    echo -e "${BLUE}=== Keychain Test ===${NC}"
+    echo -e "Testing keychain access..."
+    echo
+    
+    echo -e "1. Searching for any Claude-related entries:"
+    security dump-keychain | grep -i claude || echo -e "  No Claude entries found in default keychain"
+    echo
+    
+    echo -e "2. Testing specific service lookup:"
+    security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1 || true
+    echo
+    
+    echo -e "3. Current user: $USER"
+    echo -e "4. Service name: '$KEYCHAIN_SERVICE'"
+    echo -e "5. Trying alternative service names..."
+    
+    # Try some alternative service names
+    local alt_services=("Claude Code-credentials" "claude-code" "anthropic-claude" "Claude")
+    for service in "${alt_services[@]}"; do
+        echo -e "   Trying: '$service'"
+        if security find-generic-password -a "$USER" -s "$service" > /dev/null 2>&1; then
+            echo -e "   ${GREEN}✓ Found credentials for '$service'${NC}"
+        else
+            echo -e "   ✗ No credentials for '$service'"
+        fi
+    done
 }
 
 # Main menu
@@ -257,7 +373,8 @@ show_menu() {
     echo -e "2. Switch to personal authentication"
     echo -e "3. Switch to API billing authentication"
     echo -e "4. Show status"
-    echo -e "5. Exit"
+    echo -e "5. Test keychain access (troubleshooting)"
+    echo -e "6. Exit"
     echo
 }
 
@@ -269,7 +386,7 @@ if [ $# -eq 0 ]; then
     # Interactive mode
     while true; do
         show_menu
-        read -p "Enter your choice (1-5): " choice
+        read -p "Enter your choice (1-6): " choice
         
         case $choice in
             1)
@@ -285,6 +402,9 @@ if [ $# -eq 0 ]; then
                 show_status
                 ;;
             5)
+                test_keychain
+                ;;
+            6)
                 echo -e "${BLUE}Goodbye!${NC}"
                 exit 0
                 ;;
@@ -309,12 +429,16 @@ else
         "status")
             show_status
             ;;
+        "test")
+            test_keychain
+            ;;
         *)
-            echo -e "Usage: $0 [setup|personal|api|status]"
+            echo -e "Usage: $0 [setup|personal|api|status|test]"
             echo -e "  setup    - Setup both personal and API billing auth"
             echo -e "  personal - Switch to personal authentication"
             echo -e "  api      - Switch to API billing authentication"
             echo -e "  status   - Show current status"
+            echo -e "  test     - Test keychain access (troubleshooting)"
             echo -e "  (no args) - Interactive mode"
             exit 1
             ;;
