@@ -16,7 +16,8 @@ NC='\033[0m' # No Color
 CREDENTIAL_DIR="$HOME/.claude-code-auth-switcher"
 PERSONAL_JSON="$CREDENTIAL_DIR/personal.txt"
 API_JSON="$CREDENTIAL_DIR/api.txt"
-KEYCHAIN_SERVICE="Claude Code-credentials"
+KEYCHAIN_SERVICE_PERSONAL="Claude Code-credentials"
+KEYCHAIN_SERVICE_API="Claude Code"
 
 echo -e "${BLUE}=== Claude Code Authentication Switcher (macOS) ===${NC}"
 echo
@@ -56,25 +57,38 @@ get_keychain_credentials() {
     local creds
     local error_output
     local exit_code
+    local service_name="$1"  # Accept service name as parameter
     
-    # Try "Claude Code-credentials" first (current service name)
-    error_output=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE" 2>&1)
-    exit_code=$?
-    
-    if [ $exit_code -eq 0 ]; then
-        creds="$error_output"
-        echo "$creds"
-        return 0
-    fi
-    
-    # If not found, try "Claude Code" as fallback
-    error_output=$(security find-generic-password -a "$USER" -w -s "Claude Code" 2>&1)
-    exit_code=$?
-    
-    if [ $exit_code -eq 0 ]; then
-        creds="$error_output"
-        echo "$creds"
-        return 0
+    # Use provided service name, or try both if none provided
+    if [ -n "$service_name" ]; then
+        error_output=$(security find-generic-password -a "$USER" -w -s "$service_name" 2>&1)
+        exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
+            creds="$error_output"
+            echo "$creds"
+            return 0
+        fi
+    else
+        # Try "Claude Code-credentials" first (personal)
+        error_output=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE_PERSONAL" 2>&1)
+        exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
+            creds="$error_output"
+            echo "$creds"
+            return 0
+        fi
+        
+        # If not found, try "Claude Code" (API)
+        error_output=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE_API" 2>&1)
+        exit_code=$?
+        
+        if [ $exit_code -eq 0 ]; then
+            creds="$error_output"
+            echo "$creds"
+            return 0
+        fi
     fi
     
     # If both failed, show error
@@ -85,8 +99,8 @@ get_keychain_credentials() {
     echo -e "${YELLOW}Troubleshooting steps:${NC}"
     echo -e "1. Make sure Claude Code is installed and you've signed in at least once"
     echo -e "2. Try running these commands manually to see the full error:"
-    echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
-    echo -e "   security find-generic-password -a \"$USER\" -w -s \"Claude Code\""
+    echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE_PERSONAL\""
+    echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE_API\""
     echo -e "3. Check if Claude Code uses a different service name by running:"
     echo -e "   security dump-keychain | grep -i claude"
     return 1
@@ -95,19 +109,20 @@ get_keychain_credentials() {
 # Function to set keychain credentials
 set_keychain_credentials() {
     local creds="$1"
+    local service_name="$2"  # Accept service name as parameter
     
     # Delete existing entries for both possible service names
     local delete_output
-    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1 || true)
-    delete_output=$(security delete-generic-password -a "$USER" -s "Claude Code" 2>&1 || true)
+    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE_PERSONAL" 2>&1 || true)
+    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE_API" 2>&1 || true)
     
-    # Add new credentials
+    # Add new credentials with specified service name
     local add_output
-    add_output=$(security add-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w "$creds" 2>&1)
+    add_output=$(security add-generic-password -a "$USER" -s "$service_name" -w "$creds" 2>&1)
     local add_exit_code=$?
     
     if [ $add_exit_code -eq 0 ]; then
-        echo -e "${GREEN}✓ Successfully stored credentials in keychain${NC}"
+        echo -e "${GREEN}✓ Successfully stored credentials in keychain as '$service_name'${NC}"
     else
         echo -e "${RED}✗ Failed to store credentials in keychain${NC}"
         echo -e "${RED}Exit code: $add_exit_code${NC}"
@@ -139,6 +154,7 @@ save_credentials() {
 # Function to restore credentials from file
 restore_credentials() {
     local input_file="$1"
+    local service_name="$2"  # Accept service name as parameter
     
     if [ ! -f "$input_file" ]; then
         echo -e "${RED}Error: $input_file not found${NC}"
@@ -152,8 +168,8 @@ restore_credentials() {
         return 1
     }
     
-    # Store exactly what was saved back to keychain
-    set_keychain_credentials "$creds" || return 1
+    # Store exactly what was saved back to keychain with specified service name
+    set_keychain_credentials "$creds" "$service_name" || return 1
     
     echo -e "${GREEN}✓ Credentials restored from $input_file${NC}"
 }
@@ -177,9 +193,15 @@ setup_authentications() {
         exit 1
     }
     
-    # Save personal credentials exactly as extracted
+    # Save personal credentials exactly as extracted and store with personal service name
     save_credentials "$personal_creds" "$PERSONAL_JSON" || {
         echo -e "${RED}Failed to save personal credentials. Aborting setup.${NC}"
+        exit 1
+    }
+    
+    # Also store personal credentials in keychain with personal service name
+    set_keychain_credentials "$personal_creds" "$KEYCHAIN_SERVICE_PERSONAL" || {
+        echo -e "${RED}Failed to store personal credentials in keychain. Aborting setup.${NC}"
         exit 1
     }
     
@@ -202,9 +224,15 @@ setup_authentications() {
         exit 1
     }
     
-    # Save API credentials exactly as extracted
+    # Save API credentials exactly as extracted and store with API service name
     save_credentials "$api_creds" "$API_JSON" || {
         echo -e "${RED}Failed to save API credentials. Personal auth was saved, but API setup incomplete.${NC}"
+        exit 1
+    }
+    
+    # Store API credentials in keychain with API service name
+    set_keychain_credentials "$api_creds" "$KEYCHAIN_SERVICE_API" || {
+        echo -e "${RED}Failed to store API credentials in keychain. Personal auth was saved, but API setup incomplete.${NC}"
         exit 1
     }
     
@@ -221,8 +249,8 @@ switch_to_personal() {
     
     echo -e "${BLUE}Switching to personal authentication...${NC}"
     
-    # Restore personal credentials
-    restore_credentials "$PERSONAL_JSON" || exit 1
+    # Restore personal credentials with personal service name
+    restore_credentials "$PERSONAL_JSON" "$KEYCHAIN_SERVICE_PERSONAL" || exit 1
     
     echo -e "${GREEN}✓ Switched to personal Claude plan authentication${NC}"
     echo -e "${YELLOW}Note: You need to restart Claude Code for changes to take effect${NC}"
@@ -237,8 +265,8 @@ switch_to_api() {
     
     echo -e "${BLUE}Switching to API billing authentication...${NC}"
     
-    # Restore API credentials
-    restore_credentials "$API_JSON" || exit 1
+    # Restore API credentials with API service name
+    restore_credentials "$API_JSON" "$KEYCHAIN_SERVICE_API" || exit 1
     
     echo -e "${GREEN}✓ Switched to API billing authentication${NC}"
     echo -e "${YELLOW}Note: You need to restart Claude Code for changes to take effect${NC}"
@@ -316,11 +344,15 @@ test_keychain() {
     echo
     
     echo -e "2. Testing specific service lookup:"
-    security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1 || true
+    echo -e "   Personal service ($KEYCHAIN_SERVICE_PERSONAL):"
+    security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE_PERSONAL" 2>&1 || true
+    echo -e "   API service ($KEYCHAIN_SERVICE_API):"
+    security find-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE_API" 2>&1 || true
     echo
     
     echo -e "3. Current user: $USER"
-    echo -e "4. Service name: '$KEYCHAIN_SERVICE'"
+    echo -e "4. Personal service name: '$KEYCHAIN_SERVICE_PERSONAL'"
+    echo -e "5. API service name: '$KEYCHAIN_SERVICE_API'"
 }
 
 # Main menu
