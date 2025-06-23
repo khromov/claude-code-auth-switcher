@@ -74,9 +74,10 @@ get_keychain_credentials() {
 set_keychain_credentials() {
     local creds="$1"
     
-    # Delete existing entry if it exists
+    # Delete existing entries for both possible service names
     local delete_output
-    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1)
+    delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1 || true)
+    delete_output=$(security delete-generic-password -a "$USER" -s "Claude Code" 2>&1 || true)
     
     # Add new credentials
     local add_output
