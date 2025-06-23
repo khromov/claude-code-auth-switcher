@@ -15,7 +15,7 @@ NC='\033[0m' # No Color
 # File paths
 PERSONAL_JSON="personal.txt"
 API_JSON="api.txt"
-KEYCHAIN_SERVICE="Claude Code"
+KEYCHAIN_SERVICE="Claude Code-credentials"
 
 echo -e "${BLUE}=== Claude Code Authentication Switcher (macOS) ===${NC}"
 echo
