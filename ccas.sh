@@ -226,27 +226,10 @@ switch_to_api() {
 analyze_credentials() {
     local creds="$1"
     
-    # Try to parse as JSON first
-    if echo "$creds" | jq '.' > /dev/null 2>&1; then
+    # Check if it looks like JSON (starts with {)
+    if [[ "$creds" =~ ^\{ ]]; then
         echo -e "  Format: JSON"
-        
-        # Extract email if available
-        if echo "$creds" | jq -e '.emailAddress' > /dev/null 2>&1; then
-            local email
-            email=$(echo "$creds" | jq -r '.emailAddress' 2>/dev/null)
-            echo -e "  Email: $email"
-        fi
-        
-        # Try to determine auth type by checking organization info
-        if echo "$creds" | jq -e '.organizationUuid' > /dev/null 2>&1; then
-            local org_uuid
-            org_uuid=$(echo "$creds" | jq -r '.organizationUuid' 2>/dev/null)
-            if [ "$org_uuid" != "null" ] && [ -n "$org_uuid" ]; then
-                echo -e "  Type: API billing (has organization)"
-            else
-                echo -e "  Type: Personal plan"
-            fi
-        fi
+        echo -e "  Type: Personal plan"
     else
         # It's likely a plain string (API key)
         echo -e "  Format: String"
@@ -293,12 +276,6 @@ show_status() {
 
 # Function to check dependencies
 check_dependencies() {
-    if ! command -v jq &> /dev/null; then
-        echo -e "${RED}Error: jq is required but not installed${NC}"
-        echo -e "Install with: brew install jq"
-        exit 1
-    fi
-    
     if ! command -v security &> /dev/null; then
         echo -e "${RED}Error: security command not found${NC}"
         echo -e "This script requires macOS security command"
@@ -371,17 +348,17 @@ else
         "setup")
             setup_authentications
             ;;
-        "personal")
+        "personal"|"p")
             switch_to_personal
             ;;
-        "api")
+        "api"|"a")
             switch_to_api
             ;;
         *)
-            echo -e "Usage: $0 [setup|personal|api]"
-            echo -e "  setup    - Setup both personal and API billing auth"
-            echo -e "  personal - Switch to personal authentication"
-            echo -e "  api      - Switch to API billing authentication"
+            echo -e "Usage: $0 [setup|personal|p|api|a]"
+            echo -e "  setup      - Setup both personal and API billing auth"
+            echo -e "  personal|p - Switch to personal authentication"
+            echo -e "  api|a      - Switch to API billing authentication"
             echo -e "  (no args) - Interactive mode"
             exit 1
             ;;
