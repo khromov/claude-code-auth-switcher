@@ -166,10 +166,8 @@ setup_authentications() {
     echo -e "${YELLOW}Step 2: Setting up API billing authentication${NC}"
     echo
     echo -e "${BLUE}Now you need to switch to API billing:${NC}"
-    echo -e "1. Run: ${YELLOW}claude${NC} (or open Claude Code if not already running)"
-    echo -e "2. Type: ${YELLOW}/logout${NC} to sign out"
-    echo -e "3. Sign back in using your API billing account"
-    echo -e "4. Once you're signed in with API billing, press Enter here"
+    echo -e "1. Type: ${YELLOW}/login${NC}, choose Anthropic Console Account and then finish setting up API billing"
+    echo -e "2. MAKE SURE YOU ARE SIGNED IN WITH API BILLING then press Enter here"
     echo
     read -r
     
