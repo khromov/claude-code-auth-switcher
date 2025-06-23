@@ -6,7 +6,7 @@ This tool requires macOS.
 
 ## Installation
 
-Download ccas.sh from this repository and save it to any folder.
+[Download ccas.sh](https://raw.githubusercontent.com/khromov/claude-code-auth-switcher/refs/heads/main/ccas.sh) from this repository and save it to any folder.
 
 To make `ccas` available globally so you can run `ccas personal` from anywhere:
 
