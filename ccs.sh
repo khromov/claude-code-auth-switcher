@@ -54,79 +54,40 @@ set_keychain_credentials() {
     }
 }
 
-# Function to detect credential type and format appropriately
-process_credentials() {
-    local raw_creds="$1"
+# Function to save credentials to file
+save_credentials() {
+    local creds="$1"
     local output_file="$2"
-    local auth_type="$3"
     
-    # Try to parse as JSON first
-    if echo "$raw_creds" | jq '.' > /dev/null 2>&1; then
-        # It's valid JSON - save as-is with pretty formatting
-        echo "$raw_creds" | jq '.' > "$output_file"
-        echo -e "${GREEN}✓ Saved JSON credentials to $output_file${NC}"
-    else
-        # It's likely a plain string (API key) - create a JSON wrapper
-        cat > "$output_file" << EOF
-{
-  "authType": "$auth_type",
-  "apiKey": "$raw_creds",
-  "createdAt": "$(date -u +"%Y-%m-%dT%H:%M:%S.%3NZ")",
-  "format": "string"
-}
-EOF
-        echo -e "${GREEN}✓ Saved string credentials as JSON to $output_file${NC}"
-    fi
+    # Save exactly what we extracted - no modifications
+    echo "$creds" > "$output_file"
     
     # Set permissions to 600
     chmod 600 "$output_file"
+    
+    echo -e "${GREEN}✓ Credentials saved to $output_file${NC}"
 }
 
 # Function to restore credentials from file
 restore_credentials() {
     local input_file="$1"
-    local auth_type="$2"
     
     if [ ! -f "$input_file" ]; then
         echo -e "${RED}Error: $input_file not found${NC}"
         return 1
     fi
     
-    # Read the file
-    local file_content
-    file_content=$(cat "$input_file") || {
+    # Read the file content exactly as saved
+    local creds
+    creds=$(cat "$input_file") || {
         echo -e "${RED}Error: Could not read $input_file${NC}"
         return 1
     }
     
-    # Validate JSON format
-    echo "$file_content" | jq '.' > /dev/null 2>&1 || {
-        echo -e "${RED}Error: Invalid JSON format in $input_file${NC}"
-        return 1
-    }
+    # Store exactly what was saved back to keychain
+    set_keychain_credentials "$creds" || return 1
     
-    # Check if this is a wrapped API key or native JSON
-    local format
-    format=$(echo "$file_content" | jq -r '.format // "json"' 2>/dev/null)
-    
-    if [ "$format" = "string" ]; then
-        # Extract the original API key string
-        local api_key
-        api_key=$(echo "$file_content" | jq -r '.apiKey' 2>/dev/null)
-        
-        if [ -z "$api_key" ] || [ "$api_key" = "null" ]; then
-            echo -e "${RED}Error: Could not extract API key from $input_file${NC}"
-            return 1
-        fi
-        
-        # Store the plain string in keychain
-        set_keychain_credentials "$api_key" || return 1
-        echo -e "${GREEN}✓ Restored API key string to keychain${NC}"
-    else
-        # Store the JSON object as-is
-        set_keychain_credentials "$file_content" || return 1
-        echo -e "${GREEN}✓ Restored JSON credentials to keychain${NC}"
-    fi
+    echo -e "${GREEN}✓ Credentials restored from $input_file${NC}"
 }
 
 # Function to setup both authentications
@@ -145,10 +106,9 @@ setup_authentications() {
     local personal_creds
     personal_creds=$(get_keychain_credentials) || exit 1
     
-    # Process and save personal credentials
-    process_credentials "$personal_creds" "$PERSONAL_JSON" "personal"
+    # Save personal credentials exactly as extracted
+    save_credentials "$personal_creds" "$PERSONAL_JSON"
     
-    echo -e "${GREEN}✓ Personal authentication saved to $PERSONAL_JSON${NC}"
     echo
     
     # Step 2: Switch to API billing
@@ -167,10 +127,9 @@ setup_authentications() {
     local api_creds
     api_creds=$(get_keychain_credentials) || exit 1
     
-    # Process and save API credentials
-    process_credentials "$api_creds" "$API_JSON" "api"
+    # Save API credentials exactly as extracted
+    save_credentials "$api_creds" "$API_JSON"
     
-    echo -e "${GREEN}✓ API billing authentication saved to $API_JSON${NC}"
     echo
     echo -e "${GREEN}✓ Setup complete! You can now switch between personal and API billing auth.${NC}"
 }
@@ -185,7 +144,7 @@ switch_to_personal() {
     echo -e "${BLUE}Switching to personal authentication...${NC}"
     
     # Restore personal credentials
-    restore_credentials "$PERSONAL_JSON" "personal" || exit 1
+    restore_credentials "$PERSONAL_JSON" || exit 1
     
     echo -e "${GREEN}✓ Switched to personal Claude plan authentication${NC}"
     echo -e "${YELLOW}Note: You may need to restart Claude Code for changes to take effect${NC}"
@@ -201,19 +160,19 @@ switch_to_api() {
     echo -e "${BLUE}Switching to API billing authentication...${NC}"
     
     # Restore API credentials
-    restore_credentials "$API_JSON" "api" || exit 1
+    restore_credentials "$API_JSON" || exit 1
     
     echo -e "${GREEN}✓ Switched to API billing authentication${NC}"
     echo -e "${YELLOW}Note: You may need to restart Claude Code for changes to take effect${NC}"
 }
 
-# Function to analyze credentials and show type
+# Function to analyze what type of credentials we have
 analyze_credentials() {
     local creds="$1"
     
     # Try to parse as JSON first
     if echo "$creds" | jq '.' > /dev/null 2>&1; then
-        echo -e "  Format: JSON object"
+        echo -e "  Format: JSON"
         
         # Extract email if available
         if echo "$creds" | jq -e '.emailAddress' > /dev/null 2>&1; then
@@ -227,17 +186,17 @@ analyze_credentials() {
             local org_uuid
             org_uuid=$(echo "$creds" | jq -r '.organizationUuid' 2>/dev/null)
             if [ "$org_uuid" != "null" ] && [ -n "$org_uuid" ]; then
-                echo -e "  Auth type: Likely API billing (has organization)"
+                echo -e "  Type: API billing (has organization)"
             else
-                echo -e "  Auth type: Likely personal plan"
+                echo -e "  Type: Personal plan"
             fi
         fi
     else
-        # It's a plain string - likely an API key
-        echo -e "  Format: Plain string (likely API key)"
+        # It's likely a plain string (API key)
+        echo -e "  Format: String"
         local masked_key="${creds:0:8}...${creds: -4}"
         echo -e "  Value: $masked_key"
-        echo -e "  Auth type: API billing"
+        echo -e "  Type: API billing"
     fi
 }
 
@@ -261,18 +220,7 @@ show_status() {
     if [ -f "$PERSONAL_JSON" ]; then
         echo -e "${GREEN}✓ Personal auth backup: $PERSONAL_JSON${NC}"
         echo -e "  Permissions: $(stat -f "%A" "$PERSONAL_JSON" 2>/dev/null)"
-        
-        # Show info from backup if available
-        if jq -e '.emailAddress' "$PERSONAL_JSON" > /dev/null 2>&1; then
-            local backup_email
-            backup_email=$(jq -r '.emailAddress' "$PERSONAL_JSON" 2>/dev/null)
-            echo -e "  Personal email: $backup_email"
-        elif jq -e '.apiKey' "$PERSONAL_JSON" > /dev/null 2>&1; then
-            local api_key
-            api_key=$(jq -r '.apiKey' "$PERSONAL_JSON" 2>/dev/null)
-            local masked_key="${api_key:0:8}...${api_key: -4}"
-            echo -e "  API key: $masked_key"
-        fi
+        echo -e "  Size: $(wc -c < "$PERSONAL_JSON" | tr -d ' ') bytes"
     else
         echo -e "${RED}✗ Personal auth backup: Not found${NC}"
     fi
@@ -280,18 +228,7 @@ show_status() {
     if [ -f "$API_JSON" ]; then
         echo -e "${GREEN}✓ API billing auth backup: $API_JSON${NC}"
         echo -e "  Permissions: $(stat -f "%A" "$API_JSON" 2>/dev/null)"
-        
-        # Show info from API backup if available
-        if jq -e '.emailAddress' "$API_JSON" > /dev/null 2>&1; then
-            local api_email
-            api_email=$(jq -r '.emailAddress' "$API_JSON" 2>/dev/null)
-            echo -e "  API billing email: $api_email"
-        elif jq -e '.apiKey' "$API_JSON" > /dev/null 2>&1; then
-            local api_key
-            api_key=$(jq -r '.apiKey' "$API_JSON" 2>/dev/null)
-            local masked_key="${api_key:0:8}...${api_key: -4}"
-            echo -e "  API key: $masked_key"
-        fi
+        echo -e "  Size: $(wc -c < "$API_JSON" | tr -d ' ') bytes"
     else
         echo -e "${RED}✗ API billing auth backup: Not found${NC}"
     fi
