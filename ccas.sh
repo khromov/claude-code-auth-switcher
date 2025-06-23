@@ -337,6 +337,7 @@ show_menu() {
 # Main execution
 check_macos
 check_dependencies
+setup_credential_directory
 
 if [ $# -eq 0 ]; then
     # Interactive mode
