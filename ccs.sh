@@ -331,9 +331,7 @@ show_menu() {
     echo -e "1. Setup (backup personal auth + setup API billing auth)"
     echo -e "2. Switch to personal authentication"
     echo -e "3. Switch to API billing authentication"
-    echo -e "4. Show status"
-    echo -e "5. Test keychain access (troubleshooting)"
-    echo -e "6. Exit"
+    echo -e "4. Exit"
     echo
 }
 
@@ -345,7 +343,7 @@ if [ $# -eq 0 ]; then
     # Interactive mode
     while true; do
         show_menu
-        read -p "Enter your choice (1-6): " choice
+        read -p "Enter your choice (1-4): " choice
         
         case $choice in
             1)
@@ -358,12 +356,6 @@ if [ $# -eq 0 ]; then
                 switch_to_api
                 ;;
             4)
-                show_status
-                ;;
-            5)
-                test_keychain
-                ;;
-            6)
                 echo -e "${BLUE}Goodbye!${NC}"
                 exit 0
                 ;;
@@ -385,19 +377,11 @@ else
         "api")
             switch_to_api
             ;;
-        "status")
-            show_status
-            ;;
-        "test")
-            test_keychain
-            ;;
         *)
-            echo -e "Usage: $0 [setup|personal|api|status|test]"
+            echo -e "Usage: $0 [setup|personal|api]"
             echo -e "  setup    - Setup both personal and API billing auth"
             echo -e "  personal - Switch to personal authentication"
             echo -e "  api      - Switch to API billing authentication"
-            echo -e "  status   - Show current status"
-            echo -e "  test     - Test keychain access (troubleshooting)"
             echo -e "  (no args) - Interactive mode"
             exit 1
             ;;
