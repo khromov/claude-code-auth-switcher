@@ -31,60 +31,54 @@ check_macos() {
 
 # Function to extract credentials from keychain with detailed error reporting
 get_keychain_credentials() {
-    echo -e "${BLUE}Debug: Attempting to extract credentials...${NC}"
-    echo -e "Debug: User: $USER"
-    echo -e "Debug: Service: $KEYCHAIN_SERVICE"
-    echo -e "Debug: Command: security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
-    echo
-    
-    # Try the command and capture both stdout and stderr
     local creds
     local error_output
+    local exit_code
     
+    # Try "Claude Code-credentials" first (current service name)
     error_output=$(security find-generic-password -a "$USER" -w -s "$KEYCHAIN_SERVICE" 2>&1)
-    local exit_code=$?
+    exit_code=$?
     
     if [ $exit_code -eq 0 ]; then
         creds="$error_output"
-        echo -e "${GREEN}✓ Successfully extracted credentials${NC}"
-        echo -e "Debug: Credential length: ${#creds} characters"
         echo "$creds"
-    else
-        echo -e "${RED}✗ Failed to extract credentials${NC}"
-        echo -e "${RED}Exit code: $exit_code${NC}"
-        echo -e "${RED}Error output: $error_output${NC}"
-        echo
-        echo -e "${YELLOW}Troubleshooting steps:${NC}"
-        echo -e "1. Make sure Claude Code is installed and you've signed in at least once"
-        echo -e "2. Try running this command manually to see the full error:"
-        echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
-        echo -e "3. Check if Claude Code uses a different service name by running:"
-        echo -e "   security dump-keychain | grep -i claude"
-        return 1
+        return 0
     fi
+    
+    # If not found, try "Claude Code" as fallback
+    error_output=$(security find-generic-password -a "$USER" -w -s "Claude Code" 2>&1)
+    exit_code=$?
+    
+    if [ $exit_code -eq 0 ]; then
+        creds="$error_output"
+        echo "$creds"
+        return 0
+    fi
+    
+    # If both failed, show error
+    echo -e "${RED}✗ Failed to extract credentials${NC}"
+    echo -e "${RED}Exit code: $exit_code${NC}"
+    echo -e "${RED}Error output: $error_output${NC}"
+    echo
+    echo -e "${YELLOW}Troubleshooting steps:${NC}"
+    echo -e "1. Make sure Claude Code is installed and you've signed in at least once"
+    echo -e "2. Try running these commands manually to see the full error:"
+    echo -e "   security find-generic-password -a \"$USER\" -w -s \"$KEYCHAIN_SERVICE\""
+    echo -e "   security find-generic-password -a \"$USER\" -w -s \"Claude Code\""
+    echo -e "3. Check if Claude Code uses a different service name by running:"
+    echo -e "   security dump-keychain | grep -i claude"
+    return 1
 }
 
 # Function to set keychain credentials
 set_keychain_credentials() {
     local creds="$1"
     
-    echo -e "${BLUE}Debug: Setting credentials in keychain...${NC}"
-    echo -e "Debug: Credential length: ${#creds} characters"
-    
     # Delete existing entry if it exists
-    echo -e "Debug: Deleting existing entry (if any)..."
     local delete_output
     delete_output=$(security delete-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" 2>&1)
-    local delete_exit_code=$?
-    
-    if [ $delete_exit_code -eq 0 ]; then
-        echo -e "Debug: Existing entry deleted successfully"
-    else
-        echo -e "Debug: No existing entry to delete (or delete failed): $delete_output"
-    fi
     
     # Add new credentials
-    echo -e "Debug: Adding new credentials..."
     local add_output
     add_output=$(security add-generic-password -a "$USER" -s "$KEYCHAIN_SERVICE" -w "$creds" 2>&1)
     local add_exit_code=$?
@@ -104,27 +98,19 @@ save_credentials() {
     local creds="$1"
     local output_file="$2"
     
-    echo -e "${BLUE}Debug: Saving credentials to $output_file...${NC}"
-    echo -e "Debug: Credential length: ${#creds} characters"
-    
     # Save exactly what we extracted - no modifications
     if echo "$creds" > "$output_file"; then
-        echo -e "Debug: File write successful"
+        # Set permissions to 600
+        if chmod 600 "$output_file"; then
+            echo -e "${GREEN}✓ Credentials saved to $output_file${NC}"
+        else
+            echo -e "${RED}Error: Failed to set permissions on $output_file${NC}"
+            return 1
+        fi
     else
         echo -e "${RED}Error: Failed to write to $output_file${NC}"
         return 1
     fi
-    
-    # Set permissions to 600
-    if chmod 600 "$output_file"; then
-        echo -e "Debug: Permissions set to 600"
-    else
-        echo -e "${RED}Error: Failed to set permissions on $output_file${NC}"
-        return 1
-    fi
-    
-    echo -e "${GREEN}✓ Credentials saved to $output_file${NC}"
-    echo -e "Debug: File size: $(wc -c < "$output_file" | tr -d ' ') bytes"
 }
 
 # Function to restore credentials from file
@@ -136,17 +122,12 @@ restore_credentials() {
         return 1
     fi
     
-    echo -e "${BLUE}Debug: Restoring credentials from $input_file...${NC}"
-    echo -e "Debug: File size: $(wc -c < "$input_file" | tr -d ' ') bytes"
-    
     # Read the file content exactly as saved
     local creds
     creds=$(cat "$input_file") || {
         echo -e "${RED}Error: Could not read $input_file${NC}"
         return 1
     }
-    
-    echo -e "Debug: Read ${#creds} characters from file"
     
     # Store exactly what was saved back to keychain
     set_keychain_credentials "$creds" || return 1
@@ -165,7 +146,7 @@ setup_authentications() {
     echo -e "Please make sure that you are signed in with your PERSONAL Claude plan and then press Enter."
     read -r
     
-    echo -e "${BLUE}Extracting personal credentials from macOS Keychain...${NC}"
+    echo -e "${BLUE}Extracting personal credentials...${NC}"
     
     local personal_creds
     personal_creds=$(get_keychain_credentials) || {
@@ -192,7 +173,7 @@ setup_authentications() {
     echo
     read -r
     
-    echo -e "${BLUE}Extracting API billing credentials from macOS Keychain...${NC}"
+    echo -e "${BLUE}Extracting API billing credentials...${NC}"
     
     local api_creds
     api_creds=$(get_keychain_credentials) || {
@@ -223,7 +204,7 @@ switch_to_personal() {
     restore_credentials "$PERSONAL_JSON" || exit 1
     
     echo -e "${GREEN}✓ Switched to personal Claude plan authentication${NC}"
-    echo -e "${YELLOW}Note: You may need to restart Claude Code for changes to take effect${NC}"
+    echo -e "${YELLOW}Note: You need to restart Claude Code for changes to take effect${NC}"
 }
 
 # Function to switch to API auth
@@ -239,7 +220,7 @@ switch_to_api() {
     restore_credentials "$API_JSON" || exit 1
     
     echo -e "${GREEN}✓ Switched to API billing authentication${NC}"
-    echo -e "${YELLOW}Note: You may need to restart Claude Code for changes to take effect${NC}"
+    echo -e "${YELLOW}Note: You need to restart Claude Code for changes to take effect${NC}"
 }
 
 # Function to analyze what type of credentials we have
@@ -313,26 +294,17 @@ show_status() {
 
 # Function to check dependencies
 check_dependencies() {
-    echo -e "${BLUE}Debug: Checking dependencies...${NC}"
-    
     if ! command -v jq &> /dev/null; then
         echo -e "${RED}Error: jq is required but not installed${NC}"
         echo -e "Install with: brew install jq"
         exit 1
-    else
-        echo -e "Debug: jq found at $(which jq)"
     fi
     
     if ! command -v security &> /dev/null; then
         echo -e "${RED}Error: security command not found${NC}"
         echo -e "This script requires macOS security command"
         exit 1
-    else
-        echo -e "Debug: security found at $(which security)"
     fi
-    
-    echo -e "${GREEN}✓ All dependencies found${NC}"
-    echo
 }
 
 # Function to test keychain access (for troubleshooting)
@@ -351,18 +323,6 @@ test_keychain() {
     
     echo -e "3. Current user: $USER"
     echo -e "4. Service name: '$KEYCHAIN_SERVICE'"
-    echo -e "5. Trying alternative service names..."
-    
-    # Try some alternative service names
-    local alt_services=("Claude Code-credentials" "claude-code" "anthropic-claude" "Claude")
-    for service in "${alt_services[@]}"; do
-        echo -e "   Trying: '$service'"
-        if security find-generic-password -a "$USER" -s "$service" > /dev/null 2>&1; then
-            echo -e "   ${GREEN}✓ Found credentials for '$service'${NC}"
-        else
-            echo -e "   ✗ No credentials for '$service'"
-        fi
-    done
 }
 
 # Main menu
