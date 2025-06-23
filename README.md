@@ -22,7 +22,13 @@ To make `ccas` available globally so you can run `ccas personal` from anywhere:
    sudo ln -sf "$(pwd)/ccas.sh" /usr/local/bin/ccas
    ```
 
-3. Verify it works:
+3. Start a new bash terminal, then follow the setup process by running:
+
+   ```bash
+   ccas setup
+   ```
+
+4. Verify it works:
    ```bash
    ccas personal
    ```

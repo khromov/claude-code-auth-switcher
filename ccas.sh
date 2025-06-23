@@ -13,8 +13,9 @@ BLUE='\033[0;34m'
 NC='\033[0m' # No Color
 
 # File paths
-PERSONAL_JSON="personal.txt"
-API_JSON="api.txt"
+CREDENTIAL_DIR="$HOME/.claude-code-auth-switcher"
+PERSONAL_JSON="$CREDENTIAL_DIR/personal.txt"
+API_JSON="$CREDENTIAL_DIR/api.txt"
 KEYCHAIN_SERVICE="Claude Code-credentials"
 
 echo -e "${BLUE}=== Claude Code Authentication Switcher (macOS) ===${NC}"
@@ -25,6 +26,27 @@ check_macos() {
     if [[ "$OSTYPE" != "darwin"* ]]; then
         echo -e "${RED}Error: This script is designed for macOS only${NC}"
         echo -e "The script uses macOS Keychain to manage Claude Code credentials."
+        exit 1
+    fi
+}
+
+# Function to ensure credential directory exists and is secure
+setup_credential_directory() {
+    if [ ! -d "$CREDENTIAL_DIR" ]; then
+        echo -e "${BLUE}Creating credential directory: $CREDENTIAL_DIR${NC}"
+        if mkdir -p "$CREDENTIAL_DIR"; then
+            echo -e "${GREEN}✓ Created credential directory${NC}"
+        else
+            echo -e "${RED}✗ Failed to create credential directory${NC}"
+            exit 1
+        fi
+    fi
+    
+    # Set secure permissions (700 = rwx------)
+    if chmod 700 "$CREDENTIAL_DIR"; then
+        echo -e "${GREEN}✓ Secured credential directory permissions${NC}"
+    else
+        echo -e "${RED}✗ Failed to set directory permissions${NC}"
         exit 1
     fi
 }
