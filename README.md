@@ -33,6 +33,14 @@ To make `ccas` available globally so you can run `ccas personal` from anywhere:
    ccas personal
    ```
 
+## Update
+
+To update to the latest version:
+
+1. Follow the uninstall instructions below
+2. Download the latest `ccas.sh` from this repository
+3. Follow the installation instructions above
+
 **To uninstall:**
 
 ```bash
