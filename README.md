@@ -30,7 +30,8 @@ To make `ccas` available globally so you can run `ccas personal` from anywhere:
 
 4. Verify it works:
    ```bash
-   ccas personal
+   ccas personal # switch to personal claude.ai token
+   ccas api # switch to Anthropic pay-as-you-go API
    ```
 
 ## Update
